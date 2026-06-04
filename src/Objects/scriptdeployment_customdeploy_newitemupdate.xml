@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record>
+  <scriptid>customdeploy_newitemupdate</scriptid>
+  <script>customscript_newitemupdate</script>
+  <title>New Item Update Deployment</title>
+  <status>RELEASED</status>
+  <isdeployed>true</isdeployed>
+</record>
