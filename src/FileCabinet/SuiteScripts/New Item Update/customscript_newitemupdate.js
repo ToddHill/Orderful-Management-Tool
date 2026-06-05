@@ -3,8 +3,8 @@
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
  */
-define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/file', 'N/log'],
-    (record, search, serverWidget, file, log) => {
+define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
+    (record, search, serverWidget, log) => {
 
         const CSV_FIELD_ID = 'custpage_csvfile';
 
@@ -63,18 +63,14 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/file', 'N/log'],
         const buildLookupMap = (recordType, nameFieldId) => {
             const map = {};
             try {
-                const paged = search.create({
+                search.create({
                     type: recordType,
                     columns: ['internalid', nameFieldId]
-                }).runPaged({pageSize: 1000});
-
-                paged.pageRanges.forEach((pageRange) => {
-                    const page = paged.fetch({index: pageRange.index});
-                    page.data.forEach((r) => {
-                        const id = r.getValue({name: 'internalid'});
-                        const name = r.getValue({name: nameFieldId});
-                        if (name) map[String(name).trim().toUpperCase()] = id;
-                    });
+                }).run().each((r) => {
+                    const id = r.getValue({name: 'internalid'});
+                    const name = r.getValue({name: nameFieldId});
+                    if (name) map[String(name).trim().toUpperCase()] = id;
+                    return true;
                 });
             } catch (e) {
                 log.error('buildLookupMap error', `${recordType} - ${e.message}`);
@@ -141,6 +137,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/file', 'N/log'],
         };
 
         const onRequest = (context) => {
+            log.debug('New Item Update request', `method=${context.request.method}`);
             try {
                 if (context.request.method === 'GET') {
                     const form = serverWidget.createForm({title: 'New Item Update - Upload Consolidated CSV'});
@@ -170,40 +167,44 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/file', 'N/log'],
                 }
 
                 // Header processing
-                const header = rows[0].map(h => String(h||'').trim());
+                const normalizeHeader = (value) => String(value || '').replace(/^\uFEFF/, '').trim();
+                const header = rows[0].map(normalizeHeader);
                 const idx = {};
                 header.forEach((h, i) => { idx[h.toUpperCase()] = i; });
 
-                // required columns
                 const required = ['ITEM', 'LINK TO CUSTOMER', 'BPN', 'UPC', 'UNIT PRICE', 'SELECTION CODE', 'GS1 COLOR CODE', 'GS1 SIZE CODE'];
-                required.forEach((col) => { if (!(col in idx)) log.audit('CSV header missing', col); });
+                const missingHeaders = required.filter((col) => !(col in idx));
+                if (missingHeaders.length) {
+                    throw new Error('Missing required CSV headers: ' + missingHeaders.join(', '));
+                }
 
-                // Pre-build color and size lookups
+                const getCell = (row, columnName) => {
+                    const index = idx[columnName];
+                    if (index == null || !Array.isArray(row) || index < 0 || index >= row.length) return '';
+                    return String(row[index] || '').trim();
+                };
+
                 const colorMap = buildLookupMap('customrecord_gs1_color_codes', 'name');
                 const sizeMap = buildLookupMap('customrecord_gs1_size_codes', 'name');
-
-                // We'll cache item lookups
                 const itemCache = {};
 
-                // Determine customer id from first data row Link To Customer column. Extract numeric id from "CU-12345"
-                const firstDataRow = rows[1];
-                const linkVal = firstDataRow[idx['LINK TO CUSTOMER']];
+                const firstDataRow = rows[1] || [];
+                const linkVal = getCell(firstDataRow, 'LINK TO CUSTOMER');
                 let customerId = null;
                 if (linkVal) {
                     const m = String(linkVal).match(/CU-(\d+)/i);
                     if (m && m[1]) customerId = m[1];
                 }
                 if (!customerId) {
-                    // fallback: try to parse any digits
                     const m2 = String(linkVal).match(/(\d{3,})/);
                     if (m2 && m2[1]) customerId = m2[1];
                 }
-                if (!customerId) throw new Error('Unable to extract customer internal id from CSV Link To Customer column');
+                if (!customerId) throw new Error('Unable to extract customer internal id from CSV Link To Customer column: ' + linkVal);
 
                 // Load customer ONCE for governance optimization
                 let customerRec;
                 try {
-                    customerRec = record.load({type: record.Type.CUSTOMER, id: customerId, isDynamic: true});
+                    customerRec = record.load({type: 'customer', id: customerId, isDynamic: true});
                 } catch (e) {
                     throw new Error('Failed to load customer ' + customerId + ': ' + e.message);
                 }
@@ -214,15 +215,20 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/file', 'N/log'],
                     const row = rows[r];
                     if (!row || row.length === 0) continue;
                     try {
-                        const sku = row[idx['ITEM']] || '';
-                        const bpn = row[idx['BPN']] || '';
-                        const upc = row[idx['UPC']] || '';
-                        const priceRaw = row[idx['UNIT PRICE']] || '';
-                        const selectionCode = row[idx['SELECTION CODE']] || '';
-                        const colorName = (row[idx['GS1 COLOR CODE']] || '').toUpperCase().trim();
-                        const sizeName = (row[idx['GS1 SIZE CODE']] || '').toUpperCase().trim();
+                        const sku = getCell(row, 'ITEM');
+                        const bpn = getCell(row, 'BPN');
+                        const upc = getCell(row, 'UPC');
+                        const priceRaw = getCell(row, 'UNIT PRICE');
+                        const selectionCode = getCell(row, 'SELECTION CODE');
+                        const colorName = getCell(row, 'GS1 COLOR CODE').toUpperCase();
+                        const sizeName = getCell(row, 'GS1 SIZE CODE').toUpperCase();
 
-                        const price = priceRaw === '' ? null : parseFloat(String(priceRaw).replace(/[^0-9.\-]/g, ''));
+                        if (!sku) {
+                            log.audit('Skipping row without ITEM', `row ${r+1}`);
+                            continue;
+                        }
+
+                        const price = priceRaw === '' ? null : parseFloat(String(priceRaw).replace(/[^0-9.\-\.]/g, ''));
 
                         const itemId = findItemInternalId(sku, itemCache);
                         if (!itemId) {
@@ -233,19 +239,17 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/file', 'N/log'],
                         const colorId = colorMap[colorName] || null;
                         const sizeId = sizeMap[sizeName] || null;
 
-                        // Upsert custom cross-reference record
                         upsertCrossRef({
                             itemId: itemId,
                             customerId: customerId,
-                            bpn: bpn,
-                            upc: upc,
+                            bpn: bpn || null,
+                            upc: upc || null,
                             price: price,
                             selectionCode: selectionCode || null,
                             colorId: colorId,
                             sizeId: sizeId
                         });
 
-                        // Update customer itempricing sublist in-memory
                         const sublistId = 'itempricing';
                         const lineCount = customerRec.getLineCount({sublistId: sublistId});
                         let foundLine = -1;
@@ -257,7 +261,6 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/file', 'N/log'],
                         if (foundLine > -1) {
                             customerRec.setSublistValue({sublistId: sublistId, fieldId: 'price', line: foundLine, value: price});
                         } else {
-                            // insert new line at end
                             customerRec.selectNewLine({sublistId: sublistId});
                             customerRec.setCurrentSublistValue({sublistId: sublistId, fieldId: 'item', value: itemId});
                             if (price != null) customerRec.setCurrentSublistValue({sublistId: sublistId, fieldId: 'price', value: price});
@@ -267,7 +270,6 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/file', 'N/log'],
                         processedCount++;
                     } catch (rowErr) {
                         log.error('Row processing error', `row ${r+1}: ${rowErr.message}`);
-                        // continue processing remaining rows
                     }
                 }
 
@@ -287,7 +289,8 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/file', 'N/log'],
             } catch (e) {
                 log.error('Suitelet error', e.toString());
                 const errForm = serverWidget.createForm({title: 'Processing Error'});
-                errForm.addField({id: 'custpage_err', type: serverWidget.FieldType.INLINEHTML, label: 'Error'}).defaultValue = `<div style="color:red">Error during processing: ${String(e.message || e)}</div>`;
+                const message = String(e.message || e || 'Unknown error').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                errForm.addField({id: 'custpage_err', type: serverWidget.FieldType.INLINEHTML, label: 'Error'}).defaultValue = `<div style="color:red">Error during processing: ${message}</div>`;
                 errForm.addButton({id: 'custpage_back', label: 'Back', functionName: 'history.back()'});
                 context.response.writePage(errForm);
             }

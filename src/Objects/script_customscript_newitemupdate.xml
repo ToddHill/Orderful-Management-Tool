@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<record>
-  <scriptid>customscript_newitemupdate</scriptid>
+<script scriptid="customscript_newitemupdate">
   <name>New Item Update</name>
-  <description>Suitelet to process consolidated CSV and update customer item pricing and cross-reference records</description>
-  <scriptfile>SuiteScripts/NewItemUpdate.js</scriptfile>
-  <type>Suitelet</type>
-  <apiversion>2.1</apiversion>
-</record>
+  <scriptfile>[/SuiteScripts/New Item Update/customscript_newitemupdate.js]</scriptfile>
+  <type>SUITELET</type>
+</script>
