@@ -1,5 +1,5 @@
 <manifest projecttype="ACCOUNTCUSTOMIZATION">
-  <projectname>Orderful Management Tool</projectname>
+  <projectname>Nordstrom Beis Price and Setup Importer</projectname>
   <frameworkversion>1.0</frameworkversion>
   <dependencies>
     <features>

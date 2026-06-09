@@ -3,13 +3,13 @@
  * @NScriptType Suitelet
  * @NModuleScope SameAccount
  */
+// Forced Cache Breaker V1.0.2 - Fixed Customer Search Lookup
 define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
     (record, search, serverWidget, log) => {
 
         const CSV_FIELD_ID = 'custpage_csvfile';
 
         const parseCSV = (text) => {
-            // Robust CSV parser supporting quoted fields and commas inside quotes
             const rows = [];
             if (!text) return rows;
             let i = 0;
@@ -19,7 +19,7 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
             while (i < text.length) {
                 const ch = text[i];
                 if (ch === '"') {
-                    if (inQuotes && text[i+1] === '"') { // escaped quote
+                    if (inQuotes && text[i+1] === '"') {
                         cur += '"';
                         i += 2;
                         continue;
@@ -35,11 +35,9 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
                     continue;
                 }
                 if ((ch === '\n' || ch === '\r') && !inQuotes) {
-                    // handle CRLF or LF
                     if (ch === '\r' && text[i+1] === '\n') i++;
                     row.push(cur);
                     cur = '';
-                    // skip empty trailing line if present
                     if (row.length === 1 && row[0] === '') {
                         row = [];
                     } else {
@@ -52,7 +50,6 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
                 cur += ch;
                 i++;
             }
-            // push last field/row
             if (cur !== '' || row.length > 0) {
                 row.push(cur);
                 rows.push(row);
@@ -101,7 +98,6 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
         };
 
         const upsertCrossRef = (data) => {
-            // data should contain itemId, customerId, bpn, upc, price, selectionCode, colorId, sizeId
             try {
                 const filters = [
                     ['custrecord_item', 'is', data.itemId], 'and',
@@ -147,7 +143,6 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
                     return;
                 }
 
-                // POST processing
                 const uploaded = context.request.files && context.request.files[CSV_FIELD_ID];
                 if (!uploaded) {
                     const f = serverWidget.createForm({title: 'Error - No file uploaded'});
@@ -166,7 +161,6 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
                     return;
                 }
 
-                // Header processing
                 const normalizeHeader = (value) => String(value || '').replace(/^\uFEFF/, '').trim();
                 const header = rows[0].map(normalizeHeader);
                 const idx = {};
@@ -191,25 +185,38 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
                 const firstDataRow = rows[1] || [];
                 const linkVal = getCell(firstDataRow, 'LINK TO CUSTOMER');
                 let customerId = null;
-                if (linkVal) {
-                    const m = String(linkVal).match(/CU-(\d+)/i);
-                    if (m && m[1]) customerId = m[1];
-                }
-                if (!customerId) {
-                    const m2 = String(linkVal).match(/(\d{3,})/);
-                    if (m2 && m2[1]) customerId = m2[1];
-                }
-                if (!customerId) throw new Error('Unable to extract customer internal id from CSV Link To Customer column: ' + linkVal);
 
-                // Load customer ONCE for governance optimization
+                // FIXED: Robust real-time customer lookup via name string query
+                if (linkVal) {
+                    try {
+                        const parsedName = linkVal.split(':').pop().trim();
+                        const customerSearch = search.create({
+                            type: 'customer',
+                            filters: [
+                                ['companyname', 'is', parsedName], 'OR',
+                                ['entityid', 'contains', parsedName]
+                            ],
+                            columns: ['internalid']
+                        }).run().getRange({start: 0, end: 1});
+
+                        if (customerSearch && customerSearch.length > 0) {
+                            customerId = customerSearch[0].getValue({name: 'internalid'});
+                            log.debug('Customer Lookup Success', `Found Internal ID: ${customerId} for ${linkVal}`);
+                        }
+                    } catch (searchErr) {
+                        log.error('Customer lookup search error', searchErr.message);
+                    }
+                }
+                
+                if (!customerId) throw new Error('Unable to resolve a matching Customer database ID in NetSuite for value: ' + linkVal);
+
                 let customerRec;
                 try {
                     customerRec = record.load({type: 'customer', id: customerId, isDynamic: true});
                 } catch (e) {
-                    throw new Error('Failed to load customer ' + customerId + ': ' + e.message);
+                    throw new Error('Failed to load customer database record ' + customerId + ': ' + e.message);
                 }
 
-                // Go through each data row and process
                 let processedCount = 0;
                 for (let r = 1; r < rows.length; r++) {
                     const row = rows[r];
@@ -259,7 +266,9 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
                         }
 
                         if (foundLine > -1) {
-                            customerRec.setSublistValue({sublistId: sublistId, fieldId: 'price', line: foundLine, value: price});
+                            customerRec.selectLine({sublistId: sublistId, line: foundLine});
+                            customerRec.setCurrentSublistValue({sublistId: sublistId, fieldId: 'price', value: price});
+                            customerRec.commitLine({sublistId: sublistId});
                         } else {
                             customerRec.selectNewLine({sublistId: sublistId});
                             customerRec.setCurrentSublistValue({sublistId: sublistId, fieldId: 'item', value: itemId});
@@ -273,14 +282,12 @@ define(['N/record', 'N/search', 'N/ui/serverWidget', 'N/log'],
                     }
                 }
 
-                // Save customer once
                 try {
                     customerRec.save();
                 } catch (e) {
                     throw new Error('Failed to save customer: ' + e.message);
                 }
 
-                // Build success page
                 const outForm = serverWidget.createForm({title: 'CSV Processed'});
                 outForm.addField({id: 'custpage_statusmsg', type: serverWidget.FieldType.INLINEHTML, label: 'Status'}).defaultValue = `<div style="color:green">Success: Processed ${processedCount} rows and saved Customer (${customerId}).</div>`;
                 outForm.addButton({id: 'custpage_back', label: 'Back', functionName: 'history.back()'});

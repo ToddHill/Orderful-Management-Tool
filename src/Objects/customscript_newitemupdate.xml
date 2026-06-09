@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suitelet scriptid="customscript_newitemupdate">
+  <name>New Item Update</name>
+  <defaultfunction>onRequest</defaultfunction>
+  <scriptfile>[/SuiteScripts/NewItemUpdate/customscript_newitemupdate.js]</scriptfile>
+</suitelet>

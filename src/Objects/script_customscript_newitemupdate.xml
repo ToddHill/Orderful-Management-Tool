@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<script scriptid="customscript_newitemupdate">
-  <name>New Item Update</name>
-  <scriptfile>[/SuiteScripts/New Item Update/customscript_newitemupdate.js]</scriptfile>
-  <type>SUITELET</type>
-</script>
