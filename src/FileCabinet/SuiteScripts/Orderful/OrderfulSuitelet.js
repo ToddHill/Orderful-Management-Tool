@@ -74,10 +74,11 @@ define(['N/ui/serverWidget', 'N/https', 'N/file', 'N/task', 'N/runtime'], functi
 
             // Try to fetch inbox and populate the sublist. Use script parameter for api key if available.
             var apiKey = scriptObj.getParameter({ name: 'custscript_orderful_api_key' }) || '';
-            var inboxUrl = scriptObj.getParameter({ name: 'custscript_orderful_inbox_url' }) || 'https://api.orderful.com/mosaic/inbox';
+            var apiVersion = scriptObj.getParameter({ name: 'custscript_orderful_api_version' }) || 'v4';
+            var inboxUrl = scriptObj.getParameter({ name: 'custscript_orderful_inbox_url' }) || 'https://api.orderful.com/inboxes/{inboxId}/transactions';
 
             try {
-                var inboxResp = https.get({ url: inboxUrl, headers: { 'orderful-api-key': apiKey, 'Content-Type': 'application/json' } });
+                var inboxResp = https.get({ url: inboxUrl, headers: { 'orderful-api-key': apiKey, 'Content-Type': 'application/json', 'orderful-api-version': apiVersion } });
                 if (inboxResp.code >= 200 && inboxResp.code < 300) {
                     var inboxJson = JSON.parse(inboxResp.body || inboxResp);
                     // Attempt to find an array of transactions on common properties
@@ -126,7 +127,7 @@ define(['N/ui/serverWidget', 'N/https', 'N/file', 'N/task', 'N/runtime'], functi
                     var transactionUrlTemplate = scriptObj.getParameter({ name: 'custscript_orderful_transaction_url' }) || 'https://api.orderful.com/mosaic/transactions/{id}';
                     var transactionUrl = transactionUrlTemplate.replace('{id}', transId);
 
-                    var txResp = https.get({ url: transactionUrl, headers: { 'orderful-api-key': apiKeyPost, 'Content-Type': 'application/json' } });
+                    var txResp = https.get({ url: transactionUrl, headers: { 'orderful-api-key': apiKeyPost, 'Content-Type': 'application/json', 'orderful-api-version': apiVersion } });
                     if (txResp.code < 200 || txResp.code >= 300) throw new Error('Fetch transaction failed: ' + txResp.code + ' - ' + txResp.body);
 
                     var contents = txResp.body || txResp;
@@ -151,11 +152,11 @@ define(['N/ui/serverWidget', 'N/https', 'N/file', 'N/task', 'N/runtime'], functi
                 // Backwards-compatible clear action (kept minimal)
                 var apiKey = scriptObj.getParameter({ name: 'custscript_orderful_api_key' }) || '';
                 try {
-                    var confirmationResponse = https.post({ url: 'https://api.orderful.com/v3/transactions/confirm-delivery', body: JSON.stringify([{ deliveryStatus: 'DELIVERED', note: 'Processed via Orderful Mosaic Dispatcher', transactionId: params.transId }]), headers: { 'orderful-api-key': apiKey, 'Content-Type': 'application/json' } });
+                    var confirmationResponse = https.post({ url: 'https://api.orderful.com/v3/transactions/confirm-delivery', body: JSON.stringify([{ deliveryStatus: 'DELIVERED', note: 'Processed via Orderful Mosaic Dispatcher', transactionId: params.transId }]), headers: { 'orderful-api-key': apiKey, 'Content-Type': 'application/json', 'orderful-api-version': apiVersion } });
                     if (confirmationResponse.code < 200 || confirmationResponse.code >= 300) throw new Error('Confirm delivery failed: ' + confirmationResponse.code + ' - ' + confirmationResponse.body);
                     var pollerIdValue = params.pollerId || params.custpage_poller_id || scriptObj.getParameter({ name: 'custscript_orderful_poller_id' }) || null;
                     if (!pollerIdValue) throw new Error('Missing poller id');
-                    var retrievalResponse = https.post({ url: 'https://api.orderful.com/v3/polling-buckets/' + pollerIdValue + '/confirm-retrieval', body: JSON.stringify({ resourceIds: [params.transId] }), headers: { 'orderful-api-key': apiKey, 'Content-Type': 'application/json' } });
+                    var retrievalResponse = https.post({ url: 'https://api.orderful.com/v3/polling-buckets/' + pollerIdValue + '/confirm-retrieval', body: JSON.stringify({ resourceIds: [params.transId] }), headers: { 'orderful-api-key': apiKey, 'Content-Type': 'application/json', 'orderful-api-version': apiVersion } });
                     if (retrievalResponse.code < 200 || retrievalResponse.code >= 300) throw new Error('Confirm retrieval failed: ' + retrievalResponse.code + ' - ' + retrievalResponse.body);
                     context.response.write('✅ Success: ' + params.transId + ' delivered and cleared.');
                 } catch (e) {
