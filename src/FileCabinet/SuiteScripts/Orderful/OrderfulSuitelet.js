@@ -108,7 +108,8 @@ define(['N/ui/serverWidget', 'N/https', 'N/file', 'N/task', 'N/runtime'], functi
                     form.getField({ id: 'custpage_status' }).defaultValue = '<div style="padding:8px; color:#856404; background:#fff3cd; border:1px solid #ffeeba;">Could not load inbox. HTTP ' + inboxResp.code + ( _errBody ? ' - ' + _errBody : '' ) + '</div>';
                 }
             } catch (e) {
-                form.getField({ id: 'custpage_status' }).defaultValue = '<div style="padding:8px; color:#721c24; background:#f8d7da; border:1px solid #f5c6cb;">Error loading inbox: ' + String(e.message || e) + '</div>';
+                var _debugInfo = '<div style="padding:6px; margin-top:8px; font-size:90%; color:#383d41; background:#e9ecef; border:1px solid #ced4da;">Inbox URL: ' + inboxUrl + '<br/>API key configured: ' + (apiKey ? 'Yes' : 'No') + '</div>';
+                form.getField({ id: 'custpage_status' }).defaultValue = '<div style="padding:8px; color:#721c24; background:#f8d7da; border:1px solid #f5c6cb;">Error loading inbox: ' + String(e.message || e) + '</div>' + _debugInfo;
             }
 
             context.response.writePage(form);
