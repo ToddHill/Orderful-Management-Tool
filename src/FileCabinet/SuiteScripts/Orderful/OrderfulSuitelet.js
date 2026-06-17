@@ -12,7 +12,7 @@ define(['N/ui/serverWidget', 'N/https', 'N/file', 'N/task', 'N/runtime'], functi
             });
 
             // Attach client script (keep existing file id if present in the account)
-            form.clientScriptFileId = '4614058';
+            form.clientScriptFileId = 4614058;
 
             // CSS Injection for Redwood theme compatibility
             var styleField = form.addField({
@@ -103,7 +103,9 @@ define(['N/ui/serverWidget', 'N/https', 'N/file', 'N/task', 'N/runtime'], functi
                     }
                     form.getField({ id: 'custpage_status' }).defaultValue = statusMsg;
                 } else {
-                    form.getField({ id: 'custpage_status' }).defaultValue = '<div style="padding:8px; color:#856404; background:#fff3cd; border:1px solid #ffeeba;">Could not load inbox. HTTP ' + inboxResp.code + '</div>';
+                    var _errBody = '';
+                    try { _errBody = typeof inboxResp.body === 'string' ? inboxResp.body : JSON.stringify(inboxResp.body || ''); } catch (ee) { _errBody = String(inboxResp.body || ''); }
+                    form.getField({ id: 'custpage_status' }).defaultValue = '<div style="padding:8px; color:#856404; background:#fff3cd; border:1px solid #ffeeba;">Could not load inbox. HTTP ' + inboxResp.code + ( _errBody ? ' - ' + _errBody : '' ) + '</div>';
                 }
             } catch (e) {
                 form.getField({ id: 'custpage_status' }).defaultValue = '<div style="padding:8px; color:#721c24; background:#f8d7da; border:1px solid #f5c6cb;">Error loading inbox: ' + String(e.message || e) + '</div>';
@@ -134,7 +136,7 @@ define(['N/ui/serverWidget', 'N/https', 'N/file', 'N/task', 'N/runtime'], functi
                     var savedId = tmp.save();
 
                     // Submit Map/Reduce task and pass file id
-                    var mrTask = task.create({ taskType: task.TaskType.MAP_REDUCE, scriptId: 'customscript_orderful_processor_mr', params: { custscript_processing_file_id: savedId } });
+                    var mrTask = task.create({ taskType: task.TaskType.MAP_REDUCE, scriptId: 'customscript_orderfulmapreuce', params: { custscript_processing_file_id: savedId } });
                     var submittedId = mrTask.submit();
 
                     // Respond with a simple processing acknowledgement including MR id; client will render an in-page banner and poll status
